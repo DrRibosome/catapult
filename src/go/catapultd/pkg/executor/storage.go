@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	logBucket = "temp.levelz.io"
+	logBucket = "mybucket"
 )
 
 func uploadFile(filePath, gcsKey string, client *storage.Client) error {
