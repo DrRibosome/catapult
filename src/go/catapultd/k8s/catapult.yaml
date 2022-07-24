@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catapult
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: catapult
+rules:
+  - apiGroups: ["", "apps"] # "" indicates the core API group
+    resources: ["pods", "deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: catapult
+subjects:
+  - kind: ServiceAccount
+    name: catapult
+    apiGroup: ""
+roleRef:
+  kind: Role
+  name: catapult
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catapultd
+  labels:
+    app: catapultd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catapultd
+  template:
+    metadata:
+      labels:
+        app: catapultd
+    spec:
+      serviceAccountName: catapult
+      containers:
+      - name: main
+        image: gcr.io/myproject/catapultd:latest
+        imagePullPolicy: Always
+        command: [catapultd]
+        ports:
+        # for clients
+        - containerPort: 9999
+          name: websocket
+        # for executors
+        - containerPort: 9998
+          name: grpc
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      nodeSelector:
+        reliable: "true"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: catapult
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  # static internal ip "catapult", manually reserved: vpc networks > static ip
+  loadBalancerIP: "10.142.0.17"
+  selector:
+    app: catapultd
+  ports:
+  - name: "grpc"
+    protocol: TCP
+    port: 12100
+    targetPort: 9998
+  - name: "websocket"
+    protocol: TCP
+    port: 9999
+    targetPort: 9999

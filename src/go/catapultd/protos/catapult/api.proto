@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+// JobSpec describes the high level particulars of a job to be executed
+message JobSpec {
+    string name = 1;
+    int32 num_tasks = 2;
+    int32 parallelism = 3;
+    string image = 4;
+    Resources resources = 5;
+}
+
+// task resources
+//
+// Accepts any k8s parsable resource values
+message Resources {
+    string cpus = 1;
+    string mem = 2;
+}
+
+// TaskSpec describes an individual task to be executed as part of a job
+message TaskSpec {
+    string task_id = 1;
+    TaskData data = 2;
+    // command to use when running task
+    string command = 3;
+    // number of time a command should be retried on failure
+    int32 retries = 4;
+    bytes raw_data = 5;
+}
+
+message JobItem {
+    oneof item {
+        JobSpec job_spec = 1;
+        TaskSpec task_spec = 2;
+    }
+}
+
+message TaskData {
+    string input = 1;
+    string output = 2;
+}
+
+// message from the sever to be displayed on the client
+message ServerMessage {
+    string msg = 1;
+}
+
+message SubmitTaskResponse {
+    oneof response {
+        TaskResult result = 1;
+        ServerMessage msg = 2;
+        Heartbeat heartbeat = 3;
+    }
+}
+
+// ExecResult records whether the executor successfully executed the task.
+// If there were no errors running the task, uploading the std out/err, etc
+// then the exec result is success (even if the task itself failed).
+message ExecResult {
+    enum Status {
+        SUCCESS = 0;
+        FAIL = 1;
+    }
+    Status status = 1;
+    string err_msg = 2;
+}
+
+message TaskResult {
+    int32 exit_code = 1;
+    string job_id = 3;
+    string task_id = 4;
+    // output stores gcs path to output data, added as convenience field
+    // for python clients to alleviate need to look up original task spec
+    // when new results come in.
+    // string output = 5;
+    // gcs location containing task stdout
+    string stdout = 6;
+    string stderr = 7;
+    // result data
+    bytes data = 8;
+    ExecResult exec_result = 9;
+}
+
+// TaskRequest sent by executor to scheduler to request a new task
+message TaskRequest {
+    string job_id = 1;
+}
+
+// initial message sent by executor upon connecting
+message ExecutorInit {
+    string client_id = 1;
+    string id = 2; // executor id (pod name)
+}
+
+message ExecutorRequest {
+    oneof action {
+        TaskResult task_result = 1;
+        TaskRequest task_request = 2;
+        ExecutorInit executor_init = 3;
+        Heartbeat heartbeat = 4;
+    }
+}
+
+message Heartbeat {}
+
+message Shutdown {}
+
+message ExecutorResponse {
+    oneof response {
+        TaskSpec task_spec = 1;
+        Heartbeat heartbeat = 2;
+        Shutdown shutdown = 3;
+    }
+}
+
+// TaskStream handles connections from executors
+service ExecutorService {
+    rpc Tasks(stream ExecutorRequest) returns (stream ExecutorResponse) {}
+}
+
+// TaskGateway service handles receiving tasks from clients and sending back results
+service TaskGateway {
+    // SubmitTasks opens bidirectional stream for client to stream tasks
+    // to server for execution, and server to send back task results to client.
+    //
+    // The very first message should be a job spec, which details how to run
+    // the job.
+    rpc SubmitTasks(stream JobItem) returns (stream SubmitTaskResponse) {}
+}
